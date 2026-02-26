@@ -181,7 +181,7 @@ app.post('/api/chat-ia', async (req, res) => {
 
     let dadosContexto = '[]';
     try {
-        const resultado = await pool.query('SELECT * FROM respostas ORDER BY data_criacao DESC LIMIT 100');
+        const resultado = await pool.query('SELECT * FROM respostas ORDER BY data_criacao DESC LIMIT 600');
         dadosContexto = JSON.stringify(resultado.rows, null, 2);
     } catch (err) {
         console.warn('⚠️ Não foi possível buscar dados do banco para contexto:', err.message);
