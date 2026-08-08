@@ -316,11 +316,3 @@ app.listen(PORT, async () => {
         console.warn('⚠️ Não foi possível conectar ao Gemini:', err.message);
     }
 });
-
-// =========================================================
-// COMO GERAR O HASH DA SENHA (rodar uma vez, localmente):
-//
-// node -e "console.log(require('bcryptjs').hashSync('SUA_SENHA_AQUI', 10))"
-//
-// Copie o resultado (algo como $2a$10$...) e cole em ADMIN_PASS_HASH no .env
-// =========================================================
