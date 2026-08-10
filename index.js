@@ -11,8 +11,19 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// =========================================================
+// VARIÁVEIS DE AMBIENTE NECESSÁRIAS (já devem estar no Render)
+// ---------------------------------------------------------
+// JWT_SECRET, ADMIN_USER, ADMIN_PASS_HASH, ALLOWED_ORIGIN
+// =========================================================
+
 // --- MIDDLEWARES ---
-app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type'] }));
+app.use(helmet());
+app.use(cors({
+    origin: process.env.ALLOWED_ORIGIN || '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // --- CONFIGURAÇÃO DA IA ---
@@ -33,7 +44,69 @@ pool.connect()
     .then(() => console.log('✅ Conectado ao PostgreSQL da Locaweb'))
     .catch(err => console.error('❌ Erro de conexão:', err));
 
-// --- PROMPT BASE ---
+// =========================================================
+// AUTENTICAÇÃO
+// =========================================================
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+function autenticar(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'Token não fornecido.' });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, payload) => {
+        if (err) {
+            return res.status(403).json({ error: 'Token inválido ou expirado.' });
+        }
+        req.usuario = payload;
+        next();
+    });
+}
+
+app.post('/api/login', loginLimiter, async (req, res) => {
+    const { usuario, senha } = req.body;
+
+    if (!usuario || !senha) {
+        return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
+    }
+
+    if (usuario !== process.env.ADMIN_USER) {
+        return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+    }
+
+    try {
+        const senhaValida = await bcrypt.compare(senha, process.env.ADMIN_PASS_HASH);
+        if (!senhaValida) {
+            return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+        }
+
+        const token = jwt.sign(
+            { usuario },
+            process.env.JWT_SECRET,
+            { expiresIn: '8h' }
+        );
+
+        res.json({ token });
+    } catch (err) {
+        console.error('❌ Erro no login:', err);
+        res.status(500).json({ error: 'Erro interno ao processar login.' });
+    }
+});
+
+// =========================================================
+// PROMPT BASE DO MAQUIBOT
+// =========================================================
+
 const SYSTEM_PROMPT = `
 Você é o Maquibot, assistente oficial de análise de dados da Maquisul.
 
@@ -113,9 +186,12 @@ Cada registro de feedback contém:
 - Sempre responda em Português (pt-BR)
 `;
 
+// =========================================================
+// ROTAS
+// =========================================================
 
-
-app.get('/api/respostas', async (req, res) => {
+// 1. Buscar respostas (Dashboard) — PROTEGIDA
+app.get('/api/respostas', autenticar, async (req, res) => {
     console.log("📊 Dashboard solicitando dados...");
     const { motivo_contato, data_inicio, data_fim, atendimento } = req.query;
     const COLUNA_DATA = 'data_criacao';
@@ -137,7 +213,7 @@ app.get('/api/respostas', async (req, res) => {
     }
 });
 
-
+// 2. Salvar nova resposta — PÚBLICA (cliente respondendo a pesquisa, sem login)
 app.post('/api/respostas', async (req, res) => {
     const {
         motivo_contato, rating_geral, motivo_geral,
@@ -181,20 +257,18 @@ app.post('/api/respostas', async (req, res) => {
     }
 });
 
-
-app.post('/api/chat-ia', async (req, res) => {
+// 3. Chat com IA — PROTEGIDA
+app.post('/api/chat-ia', autenticar, async (req, res) => {
     const { pergunta } = req.body;
     if (!pergunta) return res.status(400).json({ error: 'A pergunta é obrigatória.' });
 
     console.log(`🤖 Analisando pergunta: ${pergunta}`);
-
 
     const saudacoes = ['oi', 'ola', 'olá', 'hello', 'hi', 'tudo bem', 'bom dia', 'boa tarde', 'boa noite', 'e ai', 'e aí'];
     const msgLower = pergunta.toLowerCase().trim().replace(/[!?.]/g, '');
     if (saudacoes.includes(msgLower) || saudacoes.some(s => msgLower.startsWith(s + ' '))) {
         return res.json({ resposta: "Olá! Sou o Maquibot, assistente de análise da Maquisul. 😊\n\nComo posso ajudar? Pergunte sobre feedbacks, médias, tendências ou qualquer análise da pesquisa de satisfação." });
     }
-
 
     let dadosContexto = '[]';
     let totalRegistros = 0;
@@ -238,9 +312,14 @@ Responda de forma direta e organizada. Use tabelas quando listar dados. Calcule 
     }
 });
 
-
+// --- INICIALIZAÇÃO ---
 app.listen(PORT, async () => {
     console.log(`🚀 Servidor Maquisul rodando na porta ${PORT}`);
+
+    if (!process.env.JWT_SECRET || !process.env.ADMIN_PASS_HASH) {
+        console.warn('⚠️ ATENÇÃO: JWT_SECRET ou ADMIN_PASS_HASH não configurados no .env — o login não vai funcionar.');
+    }
+
     try {
         await model.generateContent('Oi');
         console.log('✅ Conexão com Gemini OK!');
