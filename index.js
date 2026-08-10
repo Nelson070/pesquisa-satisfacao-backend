@@ -110,9 +110,6 @@ app.post('/api/login', loginLimiter, async (req, res) => {
     }
 });
 
-// =========================================================
-// ROTAS DA APLICAÇÃO
-// =========================================================
 
 const SYSTEM_PROMPT = `
 Você é a IA oficial da Maquisul, chamada de "Maquibot".
