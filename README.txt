@@ -1,11 +1,11 @@
-🚀 Backend para Pesquisa de Satisfação
+Backend para Pesquisa de Satisfação
 
-🔧 Como rodar:
+Como rodar:
 1. Instale os pacotes: npm install
 2. Configure o arquivo .env com sua senha do PostgreSQL
 3. Rode com: npm start
 
-⚠️ Certifique-se de ter a tabela 'respostas' no banco 'pesquisa-satis':
+Certifique-se de ter a tabela 'respostas' no banco 'pesquisa-satis':
 CREATE TABLE respostas (
   id SERIAL PRIMARY KEY,
   nome VARCHAR(100),
