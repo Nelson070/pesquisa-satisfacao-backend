@@ -21,12 +21,11 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet());
 app.use(cors({
     origin: process.env.ALLOWED_ORIGIN || '*',
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 
-// --- CONFIGURAÇÃO DA IA ---
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
