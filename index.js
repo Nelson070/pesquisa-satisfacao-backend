@@ -12,6 +12,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // =========================================================
+// CORREÇÃO: Confiar no proxy do Render (Essencial para o rate-limit)
+// =========================================================
+app.set('trust proxy', 1);
+
+// =========================================================
 // VARIÁVEIS DE AMBIENTE NECESSÁRIAS (já devem estar no Render)
 // ---------------------------------------------------------
 // JWT_SECRET, ADMIN_USER, ADMIN_PASS_HASH, ALLOWED_ORIGIN
