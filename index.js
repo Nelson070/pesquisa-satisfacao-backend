@@ -256,6 +256,10 @@ app.post('/api/respostas', async (req, res) => {
     }
 });
 
+app.get('/ping', (req, res) => {
+    res.status(200).send('Servidor Maquisul Acordado!');
+});
+
 // 3. Chat com IA — PROTEGIDA
 app.post('/api/chat-ia', autenticar, async (req, res) => {
     const { pergunta } = req.body;
