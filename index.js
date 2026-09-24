@@ -335,3 +335,32 @@ app.listen(PORT, async () => {
         console.warn('⚠️ Não foi possível conectar ao Gemini:', err.message);
     }
 });
+
+// npm i express-rate-limit
+const rateLimit = require('express-rate-limit');
+app.set('trust proxy', 1); // necessário no Render para o limite funcionar por IP
+
+const limiteMelhoria = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { error: 'Muitas requisições. Tente novamente em instantes.' }
+});
+
+app.post('/api/melhorar-texto', limiteMelhoria, async (req, res) => {
+    const texto = String(req.body.texto || '').trim().slice(0, 1000);
+    if (!texto) return res.status(400).json({ error: 'Texto obrigatório.' });
+
+    const prompt = `Reescreva a avaliação de cliente abaixo em português do Brasil, em primeira pessoa, de forma natural e fluida, em no máximo 3 frases.
+Mantenha o mesmo sentimento e NÃO invente fatos, elogios ou críticas que não estejam no texto.
+Responda somente com o texto final, sem aspas.
+
+Texto: ${texto}`;
+
+    try {
+        const result = await model.generateContent(prompt);
+        res.json({ texto: result.response.text().trim() });
+    } catch (err) {
+        console.error('❌ Erro ao melhorar texto:', err.message);
+        res.status(500).json({ error: 'Erro ao processar com a IA.' });
+    }
+});
