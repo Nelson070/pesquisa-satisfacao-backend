@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -11,28 +12,25 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// =========================================================
-// CORREÇÃO: Confiar no proxy do Render (Essencial para o rate-limit)
-// =========================================================
+// Confiar no proxy do Render para o rate-limit funcionar por IP.
 app.set('trust proxy', 1);
-
-// =========================================================
-// VARIÁVEIS DE AMBIENTE NECESSÁRIAS (já devem estar no Render)
-// ---------------------------------------------------------
-// JWT_SECRET, ADMIN_USER, ADMIN_PASS_HASH, ALLOWED_ORIGIN
-// =========================================================
 
 // --- MIDDLEWARES ---
 app.use(helmet());
+
 app.use(cors({
     origin: process.env.ALLOWED_ORIGIN || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json());
 
+// --- CONFIGURAÇÃO DO GEMINI ---
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash'
+});
 
 // --- CONFIGURAÇÃO DO BANCO ---
 const pool = new Pool({
@@ -45,7 +43,10 @@ const pool = new Pool({
 });
 
 pool.connect()
-    .then(() => console.log('✅ Conectado ao PostgreSQL da Locaweb'))
+    .then(client => {
+        client.release();
+        console.log('✅ Conectado ao PostgreSQL da Locaweb');
+    })
     .catch(err => console.error('❌ Erro de conexão:', err));
 
 // =========================================================
@@ -55,7 +56,9 @@ pool.connect()
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,
-    message: { error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' },
+    message: {
+        error: 'Muitas tentativas de login. Tente novamente em alguns minutos.'
+    },
     standardHeaders: true,
     legacyHeaders: false
 });
@@ -65,13 +68,18 @@ function autenticar(req, res, next) {
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
-        return res.status(401).json({ error: 'Token não fornecido.' });
+        return res.status(401).json({
+            error: 'Token não fornecido.'
+        });
     }
 
     jwt.verify(token, process.env.JWT_SECRET, (err, payload) => {
         if (err) {
-            return res.status(403).json({ error: 'Token inválido ou expirado.' });
+            return res.status(403).json({
+                error: 'Token inválido ou expirado.'
+            });
         }
+
         req.usuario = payload;
         next();
     });
@@ -81,17 +89,27 @@ app.post('/api/login', loginLimiter, async (req, res) => {
     const { usuario, senha } = req.body;
 
     if (!usuario || !senha) {
-        return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
+        return res.status(400).json({
+            error: 'Usuário e senha são obrigatórios.'
+        });
     }
 
     if (usuario !== process.env.ADMIN_USER) {
-        return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+        return res.status(401).json({
+            error: 'Usuário ou senha incorretos.'
+        });
     }
 
     try {
-        const senhaValida = await bcrypt.compare(senha, process.env.ADMIN_PASS_HASH);
+        const senhaValida = await bcrypt.compare(
+            senha,
+            process.env.ADMIN_PASS_HASH
+        );
+
         if (!senhaValida) {
-            return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+            return res.status(401).json({
+                error: 'Usuário ou senha incorretos.'
+            });
         }
 
         const token = jwt.sign(
@@ -103,7 +121,10 @@ app.post('/api/login', loginLimiter, async (req, res) => {
         res.json({ token });
     } catch (err) {
         console.error('❌ Erro no login:', err);
-        res.status(500).json({ error: 'Erro interno ao processar login.' });
+
+        res.status(500).json({
+            error: 'Erro interno ao processar login.'
+        });
     }
 });
 
@@ -194,18 +215,41 @@ Cada registro de feedback contém:
 // ROTAS
 // =========================================================
 
-// 1. Buscar respostas (Dashboard) — PROTEGIDA
+// 1. Buscar respostas do dashboard — PROTEGIDA
 app.get('/api/respostas', autenticar, async (req, res) => {
-    console.log("📊 Dashboard solicitando dados...");
-    const { motivo_contato, data_inicio, data_fim, atendimento } = req.query;
+    console.log('📊 Dashboard solicitando dados...');
+
+    const {
+        motivo_contato,
+        data_inicio,
+        data_fim,
+        atendimento
+    } = req.query;
+
     const COLUNA_DATA = 'data_criacao';
     let query = 'SELECT * FROM respostas WHERE 1=1';
     const params = [];
 
-    if (motivo_contato) { params.push(motivo_contato); query += ` AND motivo_contato = $${params.length}`; }
-    if (atendimento) { params.push(parseInt(atendimento)); query += ` AND atendimento = $${params.length}`; }
-    if (data_inicio) { params.push(`${data_inicio} 00:00:00`); query += ` AND ${COLUNA_DATA} >= $${params.length}::timestamp`; }
-    if (data_fim) { params.push(`${data_fim} 23:59:59`); query += ` AND ${COLUNA_DATA} <= $${params.length}::timestamp`; }
+    if (motivo_contato) {
+        params.push(motivo_contato);
+        query += ` AND motivo_contato = $${params.length}`;
+    }
+
+    if (atendimento) {
+        params.push(parseInt(atendimento));
+        query += ` AND atendimento = $${params.length}`;
+    }
+
+    if (data_inicio) {
+        params.push(`${data_inicio} 00:00:00`);
+        query += ` AND ${COLUNA_DATA} >= $${params.length}::timestamp`;
+    }
+
+    if (data_fim) {
+        params.push(`${data_fim} 23:59:59`);
+        query += ` AND ${COLUNA_DATA} <= $${params.length}::timestamp`;
+    }
+
     query += ` ORDER BY ${COLUNA_DATA} DESC`;
 
     try {
@@ -213,20 +257,33 @@ app.get('/api/respostas', autenticar, async (req, res) => {
         res.json(resultado.rows);
     } catch (erro) {
         console.error('❌ Erro ao buscar respostas:', erro);
-        res.status(500).json({ error: 'Erro ao buscar as respostas.' });
+
+        res.status(500).json({
+            error: 'Erro ao buscar as respostas.'
+        });
     }
 });
 
-// 2. Salvar nova resposta — PÚBLICA (cliente respondendo a pesquisa, sem login)
+// 2. Salvar nova resposta — PÚBLICA
 app.post('/api/respostas', async (req, res) => {
     const {
-        motivo_contato, rating_geral, motivo_geral,
-        rating_caixa, motivo_caixa,
-        rating_entrega, motivo_entrega,
-        suporte_rating_clareza, suporte_motivo_clareza,
-        suporte_rating_resolucao, suporte_motivo_resolucao,
-        suporte_rating_tempo_resolucao, suporte_motivo_tempo_resolucao,
-        sugestao, nome, email, telefone,
+        motivo_contato,
+        rating_geral,
+        motivo_geral,
+        rating_caixa,
+        motivo_caixa,
+        rating_entrega,
+        motivo_entrega,
+        suporte_rating_clareza,
+        suporte_motivo_clareza,
+        suporte_rating_resolucao,
+        suporte_motivo_resolucao,
+        suporte_rating_tempo_resolucao,
+        suporte_motivo_tempo_resolucao,
+        sugestao,
+        nome,
+        email,
+        telefone
     } = req.body;
 
     try {
@@ -241,26 +298,48 @@ app.post('/api/respostas', async (req, res) => {
                 suporte_tempo_resolucao, comentario_suporte_tempo_resolucao,
                 suporte_tempo_espera
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            VALUES (
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,
+                $10,$11,$12,$13,$14,$15,$16,$17,$18
+            )
         `;
+
         const values = [
-            nome || null, email || null, telefone || null, motivo_contato || null, sugestao || null,
-            rating_geral || null, motivo_geral || null,
-            rating_caixa || null, motivo_caixa || null,
-            rating_entrega || null, motivo_entrega || null,
-            suporte_rating_clareza || null, suporte_motivo_clareza || null,
-            suporte_rating_resolucao || null, suporte_motivo_resolucao || null,
-            suporte_rating_tempo_resolucao || null, suporte_motivo_tempo_resolucao || null,
+            nome || null,
+            email || null,
+            telefone || null,
+            motivo_contato || null,
+            sugestao || null,
+            rating_geral || null,
+            motivo_geral || null,
+            rating_caixa || null,
+            motivo_caixa || null,
+            rating_entrega || null,
+            motivo_entrega || null,
+            suporte_rating_clareza || null,
+            suporte_motivo_clareza || null,
+            suporte_rating_resolucao || null,
+            suporte_motivo_resolucao || null,
+            suporte_rating_tempo_resolucao || null,
+            suporte_motivo_tempo_resolucao || null,
             null
         ];
+
         await pool.query(query, values);
-        res.status(201).json({ message: 'Resposta salva com sucesso!' });
+
+        res.status(201).json({
+            message: 'Resposta salva com sucesso!'
+        });
     } catch (error) {
         console.error('❌ Erro ao salvar resposta:', error);
-        res.status(500).json({ error: 'Ocorreu um erro interno ao salvar a resposta.' });
+
+        res.status(500).json({
+            error: 'Ocorreu um erro interno ao salvar a resposta.'
+        });
     }
 });
 
+// Verificação de disponibilidade
 app.get('/ping', (req, res) => {
     res.status(200).send('Servidor Maquisul Acordado!');
 });
@@ -268,24 +347,49 @@ app.get('/ping', (req, res) => {
 // 3. Chat com IA — PROTEGIDA
 app.post('/api/chat-ia', autenticar, async (req, res) => {
     const { pergunta } = req.body;
-    if (!pergunta) return res.status(400).json({ error: 'A pergunta é obrigatória.' });
+
+    if (!pergunta) {
+        return res.status(400).json({
+            error: 'A pergunta é obrigatória.'
+        });
+    }
 
     console.log(`🤖 Analisando pergunta: ${pergunta}`);
 
-    const saudacoes = ['oi', 'ola', 'olá', 'hello', 'hi', 'tudo bem', 'bom dia', 'boa tarde', 'boa noite', 'e ai', 'e aí'];
-    const msgLower = pergunta.toLowerCase().trim().replace(/[!?.]/g, '');
-    if (saudacoes.includes(msgLower) || saudacoes.some(s => msgLower.startsWith(s + ' '))) {
-        return res.json({ resposta: "Olá! Sou o Maquibot, assistente de análise da Maquisul. 😊\n\nComo posso ajudar? Pergunte sobre feedbacks, médias, tendências ou qualquer análise da pesquisa de satisfação." });
+    const saudacoes = [
+        'oi', 'ola', 'olá', 'hello', 'hi', 'tudo bem',
+        'bom dia', 'boa tarde', 'boa noite', 'e ai', 'e aí'
+    ];
+
+    const msgLower = pergunta
+        .toLowerCase()
+        .trim()
+        .replace(/[!?.]/g, '');
+
+    if (
+        saudacoes.includes(msgLower) ||
+        saudacoes.some(s => msgLower.startsWith(s + ' '))
+    ) {
+        return res.json({
+            resposta: 'Olá! Sou o Maquibot, assistente de análise da Maquisul. 😊\n\nComo posso ajudar? Pergunte sobre feedbacks, médias, tendências ou qualquer análise da pesquisa de satisfação.'
+        });
     }
 
     let dadosContexto = '[]';
     let totalRegistros = 0;
+
     try {
-        const resultado = await pool.query('SELECT * FROM respostas ORDER BY data_criacao DESC LIMIT 500');
+        const resultado = await pool.query(
+            'SELECT * FROM respostas ORDER BY data_criacao DESC LIMIT 500'
+        );
+
         totalRegistros = resultado.rows.length;
         dadosContexto = JSON.stringify(resultado.rows, null, 2);
     } catch (err) {
-        console.warn('⚠️ Não foi possível buscar dados do banco:', err.message);
+        console.warn(
+            '⚠️ Não foi possível buscar dados do banco:',
+            err.message
+        );
     }
 
     const prompt = `
@@ -310,45 +414,43 @@ Responda de forma direta e organizada. Use tabelas quando listar dados. Calcule 
     try {
         const result = await model.generateContent(prompt);
         const text = result.response.text();
+
         res.json({ resposta: text });
     } catch (err) {
         console.error('❌ Erro na IA:', err.message);
+
         if (err.message.includes('429')) {
-            return res.status(429).json({ error: 'Limite de requisições atingido. Aguarde e tente novamente.' });
+            return res.status(429).json({
+                error: 'Limite de requisições atingido. Aguarde e tente novamente.'
+            });
         }
-        res.status(500).json({ error: 'Erro ao processar com a IA.', details: err.message });
+
+        res.status(500).json({
+            error: 'Erro ao processar com a IA.',
+            details: err.message
+        });
     }
 });
 
-// --- INICIALIZAÇÃO ---
-app.listen(PORT, async () => {
-    console.log(`🚀 Servidor Maquisul rodando na porta ${PORT}`);
-
-    if (!process.env.JWT_SECRET || !process.env.ADMIN_PASS_HASH) {
-        console.warn('⚠️ ATENÇÃO: JWT_SECRET ou ADMIN_PASS_HASH não configurados no .env — o login não vai funcionar.');
-    }
-
-    try {
-        await model.generateContent('Oi');
-        console.log('✅ Conexão com Gemini OK!');
-    } catch (err) {
-        console.warn('⚠️ Não foi possível conectar ao Gemini:', err.message);
-    }
-});
-
-// npm i express-rate-limit
-const rateLimit = require('express-rate-limit');
-app.set('trust proxy', 1); // necessário no Render para o limite funcionar por IP
-
+// 4. Melhorar texto da avaliação
 const limiteMelhoria = rateLimit({
     windowMs: 60 * 1000,
     max: 10,
-    message: { error: 'Muitas requisições. Tente novamente em instantes.' }
+    message: {
+        error: 'Muitas requisições. Tente novamente em instantes.'
+    }
 });
 
 app.post('/api/melhorar-texto', limiteMelhoria, async (req, res) => {
-    const texto = String(req.body.texto || '').trim().slice(0, 1000);
-    if (!texto) return res.status(400).json({ error: 'Texto obrigatório.' });
+    const texto = String(req.body.texto || '')
+        .trim()
+        .slice(0, 1000);
+
+    if (!texto) {
+        return res.status(400).json({
+            error: 'Texto obrigatório.'
+        });
+    }
 
     const prompt = `Reescreva a avaliação de cliente abaixo em português do Brasil, em primeira pessoa, de forma natural e fluida, em no máximo 3 frases.
 Mantenha o mesmo sentimento e NÃO invente fatos, elogios ou críticas que não estejam no texto.
@@ -358,9 +460,39 @@ Texto: ${texto}`;
 
     try {
         const result = await model.generateContent(prompt);
-        res.json({ texto: result.response.text().trim() });
+
+        res.json({
+            texto: result.response.text().trim()
+        });
     } catch (err) {
         console.error('❌ Erro ao melhorar texto:', err.message);
-        res.status(500).json({ error: 'Erro ao processar com a IA.' });
+
+        res.status(500).json({
+            error: 'Erro ao processar com a IA.'
+        });
+    }
+});
+
+// =========================================================
+// INICIALIZAÇÃO
+// =========================================================
+
+app.listen(PORT, async () => {
+    console.log(`🚀 Servidor Maquisul rodando na porta ${PORT}`);
+
+    if (!process.env.JWT_SECRET || !process.env.ADMIN_PASS_HASH) {
+        console.warn(
+            '⚠️ ATENÇÃO: JWT_SECRET ou ADMIN_PASS_HASH não configurados no .env — o login não vai funcionar.'
+        );
+    }
+
+    try {
+        await model.generateContent('Oi');
+        console.log('✅ Conexão com Gemini OK!');
+    } catch (err) {
+        console.warn(
+            '⚠️ Não foi possível conectar ao Gemini:',
+            err.message
+        );
     }
 });
